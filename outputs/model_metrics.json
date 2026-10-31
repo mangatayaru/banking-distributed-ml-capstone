@@ -1,0 +1,16 @@
+{
+  "logistic_regression": {
+    "test_rows": 859,
+    "accuracy": 0.8929,
+    "roc_auc": 0.669,
+    "precision_yes": 0.6061,
+    "recall_yes": 0.202
+  },
+  "random_forest": {
+    "test_rows": 859,
+    "accuracy": 0.8917,
+    "roc_auc": 0.698,
+    "precision_yes": 0.6364,
+    "recall_yes": 0.1414
+  }
+}

@@ -1,0 +1,9 @@
+Verified by reading uploaded CSV with pandas (not a Hadoop/Hive/Spark execution):
+Rows: 4521
+Columns: 17
+Missing cells: 0
+Target counts:
+y
+no     4000
+yes     521
+Positive target rate: 11.52%

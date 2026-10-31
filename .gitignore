@@ -1,0 +1,10 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.env
+outputs/stream_checkpoint/
+outputs/spark-warehouse/
+outputs/spark-events/
+.DS_Store

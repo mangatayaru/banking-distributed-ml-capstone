@@ -1,0 +1,413 @@
+Open the VS Code terminal:
+Get-Location
+Get-ChildItem
+Test-Path .\data\bank.csv  -- Expected output:True
+
+Check your installed software:
+python --version
+java -version
+docker --version
+docker compose version
+
+Create a virtual environment:
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1 -- Activate it
+
+Step 1 — Create requirements.txt
+In VS Code:
+1. In the Explorer panel, right-click your project root folder.
+2. Select New File.
+3. Name it exactly requirements.txt.
+Code:
+pyspark==3.5.3
+pandas>=2.2,<3.0
+numpy>=1.26,<3.0
+scikit-learn>=1.4,<2.0
+matplotlib>=3.8,<4.0
+
+Step 2 — Install the packages
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python -c "import pandas, numpy, sklearn, pyspark; print('All required packages installed successfully')"
+
+Step 1: Open your project folder in VS Code
+Open this folder in VS Code:
+
+C:\Users\kmkb5\Downloads\banking_distributed_ml_capstone_submission\banking_distributed_ml_capstone_submission\
+
+In VS Code, click File → Open Folder and select that folder.
+Step 2: Create the missing folders and file
+In the VS Code Explorer panel:
+1. Check whether a folder named scripts exists.
+2. If it doesn't, right-click the project folder and select New Folder. Name it scripts.
+3. Right-click the scripts folder and select New File.
+4. Name the file exactly 01_profile_data.py.
+Make sure the filename does not accidentally become 01_profile_data.py.txt.
+Step 3: Paste this Python code
+Copy the complete code below into 01_profile_data.py and save it with Ctrl + S.
+
+from pathlib import Path
+import json
+import pandas as pd
+
+# Project root is the parent of the scripts folder
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_FILE = PROJECT_ROOT / "data" / "bank.csv"
+OUTPUT_DIR = PROJECT_ROOT / "outputs"
+
+def main():
+    print("=" * 60)
+    print("BANKING DATASET PROFILE")
+    print("=" * 60)
+
+    # Verify that the dataset exists
+    if not DATA_FILE.exists():
+        print(f"\nERROR: Dataset not found:\n{DATA_FILE}")
+        print("\nExpected structure:")
+        print("project_folder/")
+        print("  data/")
+        print("    bank.csv")
+        return
+
+    # Load the dataset
+    df = pd.read_csv(DATA_FILE, sep=None, engine="python")
+
+    print(f"\nDataset path: {DATA_FILE}")
+    print(f"Number of rows: {df.shape[0]}")
+    print(f"Number of columns: {df.shape[1]}")
+
+    print("\nColumn names:")
+    print(df.columns.tolist())
+
+    print("\nData types:")
+    print(df.dtypes.astype(str).to_dict())
+
+    print("\nMissing values by column:")
+    missing = df.isnull().sum()
+    print(missing.to_string())
+
+    print("\nTarget distribution:")
+    if "y" in df.columns:
+        print(df["y"].value_counts(dropna=False).to_string())
+        print("\nTarget distribution (%):")
+        print(
+            (df["y"].value_counts(normalize=True) * 100)
+            .round(2)
+            .to_string()
+        )
+    else:
+        print("Target column 'y' was not found.")
+
+    # Save reproducible outputs
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    profile = {
+        "rows": int(df.shape[0]),
+        "columns": int(df.shape[1]),
+        "column_names": df.columns.tolist(),
+        "missing_values_total": int(df.isnull().sum().sum()),
+        "missing_values_by_column": {
+            str(k): int(v) for k, v in missing.items()
+        },
+        "target_distribution": (
+            {str(k): int(v) for k, v in
+             df["y"].value_counts(dropna=False).items()}
+            if "y" in df.columns else {}
+        ),
+    }
+
+    output_file = OUTPUT_DIR / "data_profile.json"
+    output_file.write_text(
+        json.dumps(profile, indent=2),
+        encoding="utf-8"
+    )
+
+    print(f"\nProfile saved to: {output_file}")
+    print("\nDataset profiling completed successfully.")
+
+if __name__ == "__main__":
+    main()
+
+
+Activate your virtual environment if you created one. For example, if its folder is named .venv: .\.venv\Scripts\Activate.ps1
+Then run: python .\scripts\01_profile_data.py
+
+Next step: Run Spark EDA
+We'll create 02_spark_eda.py to analyze your banking dataset using Apache Spark, which demonstrates distributed data processing.
+1. Create the script
+In VS Code, open the scripts folder, create a new file named 02_spark_eda.py, and paste this code:
+
+from pathlib import Path
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_FILE = PROJECT_ROOT / "data" / "bank.csv"
+OUTPUT_DIR = PROJECT_ROOT / "outputs"
+
+def main():
+    if not DATA_FILE.exists():
+        raise FileNotFoundError(f"Dataset not found: {DATA_FILE}")
+
+    spark = (
+        SparkSession.builder
+        .appName("BankingCapstoneEDA")
+        .master("local[*]")
+        .config("spark.sql.shuffle.partitions", "4")
+        .getOrCreate()
+    )
+
+    spark.sparkContext.setLogLevel("WARN")
+
+    try:
+        # The original Bank Marketing dataset is semicolon-delimited.
+        df = (
+            spark.read
+            .option("header", True)
+            .option("inferSchema", True)
+            .option("sep", ",")
+            .csv(str(DATA_FILE))
+        )
+
+        print("\n=== DATASET SCHEMA ===")
+        df.printSchema()
+
+        print("\n=== DATASET SIZE ===")
+        print(f"Rows: {df.count()}")
+        print(f"Columns: {len(df.columns)}")
+
+        print("\n=== MISSING VALUES ===")
+        missing_exprs = [
+            F.sum(
+                F.when(F.col(c).isNull(), 1).otherwise(0)
+            ).alias(c)
+            for c in df.columns
+        ]
+        df.select(*missing_exprs).show(truncate=False)
+
+        print("\n=== SUBSCRIPTION TARGET DISTRIBUTION ===")
+        df.groupBy("y").count().orderBy(F.desc("count")).show()
+
+        print("\n=== SUBSCRIPTION RATE BY JOB ===")
+        job_summary = (
+            df.groupBy("job")
+            .agg(
+                F.count("*").alias("customers"),
+                F.sum(
+                    F.when(F.col("y") == "yes", 1).otherwise(0)
+                ).alias("subscriptions")
+            )
+            .withColumn(
+                "subscription_rate_pct",
+                F.round(
+                    F.col("subscriptions") / F.col("customers") * 100,
+                    2
+                )
+            )
+            .orderBy(F.desc("subscription_rate_pct"))
+        )
+        job_summary.show(truncate=False)
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        job_summary.coalesce(1).write.mode("overwrite").option(
+            "header", True
+        ).csv(str(OUTPUT_DIR / "job_by_target"))
+
+        print(f"\nJob summary saved under: {OUTPUT_DIR / 'job_by_target'}")
+        print("\nSpark EDA completed successfully.")
+
+    finally:
+        spark.stop()
+
+if __name__ == "__main__":
+    main()
+
+2. Run it: python .\scripts\02_spark_eda.py
+
+
+Step 1: Create 03_train_model.py
+In VS Code, open the scripts folder, create a new file called 03_train_model.py, and paste this code.
+
+from pathlib import Path
+import json
+
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler
+from pyspark.ml.classification import LogisticRegression, RandomForestClassifier
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.functions import vector_to_array
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_FILE = PROJECT_ROOT / "data" / "bank.csv"
+OUTPUT_DIR = PROJECT_ROOT / "outputs"
+
+def main():
+    spark = (
+        SparkSession.builder
+        .appName("BankingCapstoneML")
+        .master("local[*]")
+        .config("spark.sql.shuffle.partitions", "4")
+        .getOrCreate()
+    )
+    spark.sparkContext.setLogLevel("WARN")
+
+    try:
+        df = (
+            spark.read
+            .option("header", True)
+            .option("inferSchema", True)
+            .option("sep", ",")
+            .csv(str(DATA_FILE))
+        )
+
+        # Exclude duration: it is only known after the call and can
+        # cause target leakage in a pre-call prediction scenario.
+        numeric_cols = [
+            "age", "campaign", "pdays", "previous"
+        ]
+        categorical_cols = [
+            "job", "marital", "education", "default", "housing",
+            "loan", "contact", "month", "poutcome"
+        ]
+
+        # Convert the yes/no target to a numeric label.
+        df = df.withColumn(
+            "label",
+            F.when(F.col("y") == "yes", 1.0).otherwise(0.0)
+        )
+
+        # Fit preprocessing on the training data through a Pipeline.
+        indexers = [
+            StringIndexer(
+                inputCol=c,
+                outputCol=f"{c}_idx",
+                handleInvalid="keep"
+            )
+            for c in categorical_cols
+        ]
+
+        encoder = OneHotEncoder(
+            inputCols=[f"{c}_idx" for c in categorical_cols],
+            outputCols=[f"{c}_oh" for c in categorical_cols]
+        )
+
+        assembler = VectorAssembler(
+            inputCols=numeric_cols +
+                      [f"{c}_oh" for c in categorical_cols],
+            outputCol="features",
+            handleInvalid="keep"
+        )
+
+        train, test = df.randomSplit([0.8, 0.2], seed=42)
+
+        models = {
+            "logistic_regression": LogisticRegression(
+                featuresCol="features",
+                labelCol="label",
+                maxIter=30
+            ),
+            "random_forest": RandomForestClassifier(
+                featuresCol="features",
+                labelCol="label",
+                numTrees=50,
+                maxDepth=8,
+                seed=42
+            )
+        }
+
+        evaluator = BinaryClassificationEvaluator(
+            labelCol="label",
+            rawPredictionCol="rawPrediction",
+            metricName="areaUnderROC"
+        )
+
+        results = {}
+
+        for model_name, classifier in models.items():
+            pipeline = Pipeline(
+                stages=indexers + [encoder, assembler, classifier]
+            )
+
+            print(f"\nTraining {model_name}...")
+            fitted = pipeline.fit(train)
+            predictions = fitted.transform(test)
+
+            auc = evaluator.evaluate(predictions)
+
+            # Accuracy and positive-class precision/recall.
+            counts = predictions.agg(
+                F.sum(
+                    F.when(
+                        F.col("prediction") == F.col("label"), 1
+                    ).otherwise(0)
+                ).alias("correct"),
+                F.count("*").alias("total"),
+                F.sum(
+                    F.when(
+                        (F.col("prediction") == 1.0) &
+                        (F.col("label") == 1.0), 1
+                    ).otherwise(0)
+                ).alias("tp"),
+                F.sum(
+                    F.when(
+                        (F.col("prediction") == 1.0) &
+                        (F.col("label") == 0.0), 1
+                    ).otherwise(0)
+                ).alias("fp"),
+                F.sum(
+                    F.when(
+                        (F.col("prediction") == 0.0) &
+                        (F.col("label") == 1.0), 1
+                    ).otherwise(0)
+                ).alias("fn")
+            ).first()
+
+            tp = counts["tp"] or 0
+            fp = counts["fp"] or 0
+            fn = counts["fn"] or 0
+
+            results[model_name] = {
+                "test_rows": int(counts["total"]),
+                "accuracy": round(counts["correct"] / counts["total"], 4),
+                "roc_auc": round(auc, 4),
+                "precision_yes": round(tp / (tp + fp), 4)
+                    if tp + fp else 0.0,
+                "recall_yes": round(tp / (tp + fn), 4)
+                    if tp + fn else 0.0
+            }
+
+            predictions.select("y", "label", "prediction").show(10)
+
+            print(f"{model_name} trained successfully.")
+            print("Model persistence skipped due to Windows Hadoop compatibility.")     
+
+            print(f"{model_name} metrics: {results[model_name]}")
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        metrics_file = OUTPUT_DIR / "model_metrics.json"
+        metrics_file.write_text(
+            json.dumps(results, indent=2),
+            encoding="utf-8"
+        )
+
+        print(f"\nMetrics saved to: {metrics_file}")
+        print("Trained models saved under outputs/models/")
+        print("\nMachine-learning step completed successfully.")
+
+    finally:
+        spark.stop()
+
+if __name__ == "__main__":
+    main()
+
+python .\scripts\05_stream_transactions.py
+python .\scripts\04_generate_transactions.py
+python .\scripts\03_train_model.py
+python .\scripts\02_spark_eda.py
+python .\scripts\01_profile_data.py (python .\scripts\01_profile_data.py --input .\data\bank.csv)
+
+Test-Path .\data\bank.csv
+
+.master("local[*]")

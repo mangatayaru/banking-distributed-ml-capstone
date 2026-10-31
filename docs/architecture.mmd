@@ -1,0 +1,11 @@
+flowchart TD
+  A[bank.csv] --> B[HDFS raw storage]
+  B --> C[Hive external table / HiveQL]
+  B --> D[Spark DataFrame EDA]
+  D --> E[Feature engineering]
+  E --> F[Spark MLlib pipeline]
+  F --> G[Evaluation and model artifacts]
+  H[Synthetic transaction JSON] --> I[Spark Structured Streaming]
+  I --> J[Rule-based alert sink]
+  I --> K[Windowed channel aggregates]
+  L[Partitioning and tuning] --- D
