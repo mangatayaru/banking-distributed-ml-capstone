@@ -1,10 +1,38 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
 .venv/
 venv/
-__pycache__/
-*.pyc
+env/
+
+# Jupyter
 .ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment variables and secrets
 .env
+.env.*
+!.env.example
+
+# Spark and Hadoop temporary files
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Streaming checkpoints and generated input
 outputs/stream_checkpoint/
-outputs/spark-warehouse/
-outputs/spark-events/
+outputs/checkpoints/
+data/stream_input/
+streaming/incoming/
+
+# OS files
 .DS_Store
+Thumbs.db
+
